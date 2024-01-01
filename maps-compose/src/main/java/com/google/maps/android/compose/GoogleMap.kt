@@ -28,11 +28,13 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCompositionContext
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalInspectionMode
@@ -120,37 +122,71 @@ public fun GoogleMap(
         }
     }
 
-    val currentLocationSource by rememberUpdatedState(locationSource)
-    val currentCameraPositionState by rememberUpdatedState(cameraPositionState)
-    val currentContentPadding by rememberUpdatedState(contentPadding)
-    val currentUiSettings by rememberUpdatedState(uiSettings)
-    val currentMapProperties by rememberUpdatedState(properties)
+    val mapUpdaterState = remember {
+        MapUpdaterState(
+            mergeDescendants,
+            contentDescription,
+            cameraPositionState,
+            contentPadding,
+            locationSource,
+            properties,
+            uiSettings
+        )
+    }.also {
+        it.mergeDescendants = mergeDescendants
+        it.contentDescription = contentDescription
+        it.cameraPositionState = cameraPositionState
+        it.contentPadding = contentPadding
+        it.locationSource = locationSource
+        it.mapProperties = properties
+        it.mapUiSettings = uiSettings
+    }
 
     val parentComposition = rememberCompositionContext()
     val currentContent by rememberUpdatedState(content)
     LaunchedEffect(Unit) {
         disposingComposition {
             mapView.newComposition(parentComposition, mapClickListeners) {
-                MapUpdater(
-                    mergeDescendants = mergeDescendants,
-                    contentDescription = contentDescription,
-                    cameraPositionState = currentCameraPositionState,
-                    contentPadding = currentContentPadding,
-                    locationSource = currentLocationSource,
-                    mapProperties = currentMapProperties,
-                    mapUiSettings = currentUiSettings,
-                )
-
-                MapClickListenerUpdater()
-
-                CompositionLocalProvider(
-                    LocalCameraPositionState provides cameraPositionState,
-                ) {
-                    currentContent?.invoke()
+                Subcomposition(mapUpdaterState) {
+                    // todo change parameter default to {} from "null", which is less meaningful
+                    currentContent ?: {}
                 }
             }
         }
     }
+}
+
+@Composable
+private inline fun Subcomposition(
+    mapUpdaterState: MapUpdaterState,
+    crossinline content: @Composable @GoogleMapComposable () -> Unit
+) {
+    MapUpdater(mapUpdaterState)
+
+    MapClickListenerUpdater()
+
+    CompositionLocalProvider(
+        LocalCameraPositionState provides mapUpdaterState.cameraPositionState
+    ) { content() }
+}
+
+@Stable
+internal class MapUpdaterState(
+    mergeDescendants: Boolean,
+    contentDescription: String?,
+    cameraPositionState: CameraPositionState,
+    contentPadding: PaddingValues,
+    locationSource: LocationSource?,
+    mapProperties: MapProperties,
+    mapUiSettings: MapUiSettings
+) {
+    var mergeDescendants by mutableStateOf(mergeDescendants)
+    var contentDescription by mutableStateOf(contentDescription)
+    var cameraPositionState by mutableStateOf(cameraPositionState)
+    var contentPadding by mutableStateOf(contentPadding)
+    var locationSource by mutableStateOf(locationSource)
+    var mapProperties by mutableStateOf(mapProperties)
+    var mapUiSettings by mutableStateOf(mapUiSettings)
 }
 
 internal suspend inline fun disposingComposition(factory: () -> Composition) {
