@@ -33,7 +33,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCompositionContext
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -106,21 +105,11 @@ public fun GoogleMap(
     AndroidView(modifier = modifier, factory = { mapView })
     MapLifecycle(mapView)
 
-    // rememberUpdatedState and friends are used here to make these values observable to
-    // the subcomposition without providing a new content function each recomposition
-    val mapClickListeners = remember { MapClickListeners() }
+    // Custom state objects are used below to make these values observable to
+    // the subcomposition without providing a new content function each recomposition;
+    // this is similar to what rememberUpdatedState() does.
 
-    SideEffect {
-        mapClickListeners.also {
-            it.indoorStateChangeListener = indoorStateChangeListener
-            it.onMapClick = onMapClick
-            it.onMapLongClick = onMapLongClick
-            it.onMapLoaded = onMapLoaded
-            it.onMyLocationButtonClick = onMyLocationButtonClick
-            it.onMyLocationClick = onMyLocationClick
-            it.onPOIClick = onPOIClick
-        }
-    }
+    val mapClickListeners = remember { MapClickListeners() }
 
     val mapUpdaterState = remember {
         MapUpdaterState(
@@ -132,18 +121,38 @@ public fun GoogleMap(
             properties,
             uiSettings
         )
-    }.also {
-        it.mergeDescendants = mergeDescendants
-        it.contentDescription = contentDescription
-        it.cameraPositionState = cameraPositionState
-        it.contentPadding = contentPadding
-        it.locationSource = locationSource
-        it.mapProperties = properties
-        it.mapUiSettings = uiSettings
+    }
+
+    var currentContent by remember { mutableStateOf(content) }
+
+    // Update state objects for the subcomposition in one batch, after composition
+    // completes, not during composition, like rememberUpdateState(). This fixes #480.
+    SideEffect {
+        mapClickListeners.also {
+            it.indoorStateChangeListener = indoorStateChangeListener
+            it.onMapClick = onMapClick
+            it.onMapLongClick = onMapLongClick
+            it.onMapLoaded = onMapLoaded
+            it.onMyLocationButtonClick = onMyLocationButtonClick
+            it.onMyLocationClick = onMyLocationClick
+            it.onPOIClick = onPOIClick
+        }
+
+        mapUpdaterState.also {
+            it.mergeDescendants = mergeDescendants
+            it.contentDescription = contentDescription
+            it.cameraPositionState = cameraPositionState
+            it.contentPadding = contentPadding
+            it.locationSource = locationSource
+            it.mapProperties = properties
+            it.mapUiSettings = uiSettings
+        }
+
+        currentContent = content
     }
 
     val parentComposition = rememberCompositionContext()
-    val currentContent by rememberUpdatedState(content)
+
     LaunchedEffect(Unit) {
         disposingComposition {
             mapView.newComposition(parentComposition, mapClickListeners) {
